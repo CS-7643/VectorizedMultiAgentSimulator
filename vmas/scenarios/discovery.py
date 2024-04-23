@@ -209,15 +209,14 @@ class Scenario(BaseScenario):
 
     def observation(self, agent: Agent):
         agent_dist_target = torch.linalg.vector_norm(agent.state.pos - self._targets[0].state.pos, dim=-1)
-        print(agent_dist_target)
         target_found = agent_dist_target < self._lidar_range
-        print(target_found)
+        target_found = target_found.reshape(-1,1)
             
         return torch.cat(
             [
                 agent.state.pos,
                 agent.state.vel,
-                # target_found
+                target_found
             ],
             dim=-1,
         )
