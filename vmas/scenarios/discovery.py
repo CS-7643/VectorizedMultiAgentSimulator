@@ -25,7 +25,7 @@ class Scenario(BaseScenario):
         self.n_targets = kwargs.get("n_targets", 7)
         self._min_dist_between_entities = kwargs.get("min_dist_between_entities", 0.2)
         self._lidar_range = kwargs.get("lidar_range", 0.35)
-        self._covering_range = kwargs.get("covering_range", 0.25)
+        self._covering_range = kwargs.get("covering_range", 0.35)
         self._agents_per_target = kwargs.get("agents_per_target", 2)
         self.targets_respawn = kwargs.get("targets_respawn", True)
         self.shared_reward = kwargs.get("shared_reward", False)
@@ -34,7 +34,7 @@ class Scenario(BaseScenario):
         self.covering_rew_coeff = kwargs.get("covering_rew_coeff", 1.0)
         self.time_penalty = kwargs.get("time_penalty", 0)
 
-        self._comms_range = self._lidar_range
+        # self._comms_range = self._lidar_range
         self.min_collision_distance = 0.005
         self.agent_radius = 0.05
         self.target_radius = self.agent_radius
@@ -66,24 +66,6 @@ class Scenario(BaseScenario):
                 name=f"agent_{i}",
                 collide=True,
                 shape=Sphere(radius=self.agent_radius),
-                sensors=[
-                    # Lidar(
-                    #     world,
-                    #     angle_start=0.05,
-                    #     angle_end=2 * torch.pi + 0.05,
-                    #     n_rays=12,
-                    #     max_range=self._lidar_range,
-                    #     entity_filter=entity_filter_agents,
-                    #     render_color=Color.BLUE,
-                    # ),
-                    Lidar(
-                        world,
-                        n_rays=15,
-                        max_range=self._lidar_range,
-                        entity_filter=entity_filter_targets,
-                        render_color=Color.GREEN,
-                    ),
-                ],
             )
             agent.collision_rew = torch.zeros(batch_dim, device=device)
             agent.covering_reward = agent.collision_rew.clone()
@@ -226,15 +208,15 @@ class Scenario(BaseScenario):
         return agent.covering_reward
 
     def observation(self, agent: Agent):
-        lidar_1_measures = agent.sensors[0].measure()
-        # lidar_2_measures = agent.sensors[1].measure()
+        agent_dist_target = torch.linalg.vector_norm(agent.state.pos - self._targets[0].state.pos, dim=-1)
+        target_found = agent_dist_target < self._lidar_range
+        target_found = target_found.reshape(-1,1)
+            
         return torch.cat(
             [
                 agent.state.pos,
                 agent.state.vel,
-                agent.state.pos,
-                lidar_1_measures,
-                # lidar_2_measures,
+                target_found
             ],
             dim=-1,
         )
@@ -266,27 +248,37 @@ class Scenario(BaseScenario):
             range_circle.add_attr(xform)
             range_circle.set_color(*self.target_color.value)
             geoms.append(range_circle)
-        # Communication lines
-        for i, agent1 in enumerate(self.world.agents):
-            for j, agent2 in enumerate(self.world.agents):
-                if j <= i:
-                    continue
-                agent_dist = torch.linalg.vector_norm(
-                    agent1.state.pos - agent2.state.pos, dim=-1
-                )
-                if agent_dist[env_index] <= self._comms_range:
-                    color = Color.BLACK.value
-                    line = rendering.Line(
-                        (agent1.state.pos[env_index]),
-                        (agent2.state.pos[env_index]),
-                        width=1,
-                    )
-                    xform = rendering.Transform()
-                    line.add_attr(xform)
-                    line.set_color(*color)
-                    geoms.append(line)
-
+        
+        for i, agent in enumerate(self.world.agents):
+            obs_circle = rendering.make_circle(self._lidar_range, filled=True)
+            xform = rendering.Transform()
+            xform.set_translation(*agent.state.pos[env_index])
+            obs_circle.add_attr(xform)
+            obs_circle.set_color(*(0.827, 0.827, 0.827, 0.65))
+            geoms.append(obs_circle)
+       
         return geoms
+        # # Communication lines
+        # for i, agent1 in enumerate(self.world.agents):
+        #     for j, agent2 in enumerate(self.world.agents):
+        #         if j <= i:
+        #             continue
+        #         agent_dist = torch.linalg.vector_norm(
+        #             agent1.state.pos - agent2.state.pos, dim=-1
+        #         )
+        #         if agent_dist[env_index] <= self._comms_range:
+        #             color = Color.BLACK.value
+        #             line = rendering.Line(
+        #                 (agent1.state.pos[env_index]),
+        #                 (agent2.state.pos[env_index]),
+        #                 width=1,
+        #             )
+        #             xform = rendering.Transform()
+        #             line.add_attr(xform)
+        #             line.set_color(*color)
+        #             geoms.append(line)
+
+        # return geoms
 
 
 class HeuristicPolicy(BaseHeuristicPolicy):
