@@ -31,6 +31,7 @@ class Scenario(BaseScenario):
         self.lidar_range = kwargs.get("lidar_range", 0.35)
         self.agent_radius = kwargs.get("agent_radius", 0.1)
         self.comms_range = kwargs.get("comms_range", 0)
+        self.sensors = kwargs.get("sensors", False)
 
         self.shared_rew = kwargs.get("shared_rew", True)
         self.pos_shaping_factor = kwargs.get("pos_shaping_factor", 1)
@@ -39,8 +40,10 @@ class Scenario(BaseScenario):
         self.agent_collision_penalty = kwargs.get("agent_collision_penalty", -1)
 
         self.min_distance_between_entities = self.agent_radius * 2 + 0.05
-        self.world_semidim = 1
+        self.world_semidim = kwargs.get("world_semidim", 1)
         self.min_collision_distance = 0.005
+        self.all_goal_reached = torch.zeros(batch_dim, device=device)
+        self.num_collisions = torch.zeros(batch_dim, device=device)
 
         assert 1 <= self.agents_with_same_goal <= self.n_agents
         if self.agents_with_same_goal > 1:
@@ -97,7 +100,7 @@ class Scenario(BaseScenario):
                             entity_filter=entity_filter_agents,
                         ),
                     ]
-                    if self.collisions
+                    if self.sensors
                     else None
                 ),
             )
@@ -120,6 +123,11 @@ class Scenario(BaseScenario):
         return world
 
     def reset_world_at(self, env_index: int = None):
+        if env_index is None:
+            self.num_collisions = torch.zeros(self.world.batch_dim, device=self.world.device)
+        else:
+            self.num_collisions[env_index] = 0
+
         ScenarioUtils.spawn_entities_randomly(
             self.world.agents,
             self.world,
@@ -202,6 +210,8 @@ class Scenario(BaseScenario):
                         b.agent_collision_rew[
                             distance <= self.min_collision_distance
                         ] += self.agent_collision_penalty
+                        self.num_collisions += distance <= self.min_collision_distance
+
 
         pos_reward = self.pos_rew if self.shared_rew else agent.pos_rew
         return pos_reward + self.final_rew + agent.agent_collision_rew
@@ -211,7 +221,7 @@ class Scenario(BaseScenario):
             agent.state.pos - agent.goal.state.pos,
             dim=-1,
         )
-        agent.on_goal = agent.distance_to_goal < agent.goal.shape.radius
+        agent.on_goal = agent.distance_to_goal < agent.shape.radius
 
         pos_shaping = agent.distance_to_goal * self.pos_shaping_factor
         agent.pos_rew = agent.pos_shaping - pos_shaping
@@ -233,30 +243,31 @@ class Scenario(BaseScenario):
             + goal_poses
             + (
                 [agent.sensors[0]._max_range - agent.sensors[0].measure()]
-                if self.collisions
+                if self.sensors
                 else []
             ),
             dim=-1,
         )
 
     def done(self):
-        return torch.stack(
-            [
-                torch.linalg.vector_norm(
-                    agent.state.pos - agent.goal.state.pos,
-                    dim=-1,
-                )
-                < agent.shape.radius
-                for agent in self.world.agents
-            ],
-            dim=-1,
-        ).all(-1)
+        for agent in self.world.agents:
+            agent.distance_to_goal = torch.linalg.vector_norm(
+                agent.state.pos - agent.goal.state.pos,
+                dim=-1,
+            )
+            agent.on_goal = agent.distance_to_goal < agent.shape.radius
+
+        self.all_goal_reached = torch.all(
+            torch.stack([a.on_goal for a in self.world.agents], dim=-1), dim=-1
+        )
+
+        return self.all_goal_reached
 
     def info(self, agent: Agent) -> Dict[str, Tensor]:
         return {
             "pos_rew": self.pos_rew if self.shared_rew else agent.pos_rew,
-            "final_rew": self.final_rew,
-            "agent_collisions": agent.agent_collision_rew,
+            "success_rate": self.all_goal_reached,
+            "agent_collisions": self.num_collisions,
         }
 
     def extra_render(self, env_index: int = 0) -> "List[Geom]":
