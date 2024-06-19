@@ -229,7 +229,7 @@ class Scenario(BaseScenario):
                 else self.shared_covering_rew
             ),
             "collision_rew": agent.collision_rew,
-            "targets_covered": self.covered_targets.sum(-1),
+            "success_rate": self.covered_targets.sum(-1),
         }
         return info
 
