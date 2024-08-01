@@ -29,6 +29,7 @@ class Scenario(BaseScenario):
         self._agents_per_target = kwargs.get("agents_per_target", 2)
         self.targets_respawn = kwargs.get("targets_respawn", True)
         self.shared_reward = kwargs.get("shared_reward", False)
+        self.world_semidim = kwargs.get("world_semidim", 1)
 
         self.agent_collision_penalty = kwargs.get("agent_collision_penalty", 0)
         self.covering_rew_coeff = kwargs.get("covering_rew_coeff", 1.0)
@@ -46,8 +47,8 @@ class Scenario(BaseScenario):
         world = World(
             batch_dim,
             device,
-            x_semidim=1,
-            y_semidim=1,
+            x_semidim=self.world_semidim,
+            y_semidim=self.world_semidim,
             collision_force=500,
             substeps=2,
             drag=0.25,
